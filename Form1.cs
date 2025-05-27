@@ -1,0 +1,246 @@
+﻿using System;
+using System.IO;
+using System.Windows.Forms;
+using NAudio.Wave;
+using OxyPlot;
+using OxyPlot.Series;
+using OxyPlot.WindowsForms;
+using System.Drawing;
+
+
+namespace kk
+{
+    public partial class Form1 : Form
+    {
+        private PlotView plotView;
+        private WaveOutEvent outputDevice;
+        private AudioFileReader audioFile;
+        private string inputFile = Path.Combine(Application.StartupPath, "C:/Users/User/source/repos/kk/kk/re/input.wav");
+        private string reversedFile = Path.Combine(Application.StartupPath, "reversed.wav");
+        private string reversedChannelsFile = Path.Combine(Application.StartupPath, "reversed_channels.wav");
+
+        public Form1()
+        {
+            InitializeComponent();
+            InitializeComponents();
+        }
+
+        private void InitializeComponents()
+        {
+            // Initialize plot view
+            plotView = new PlotView
+            {
+                Dock = DockStyle.Fill,
+                Visible = false,
+                BackColor = Color.White,
+                Size = new Size(600, 400)
+            };
+            this.Controls.Add(plotView);
+
+            // Create and position buttons
+            var btnProcess = new Button
+            {
+                Text = "Process Audio",
+                Location = new Point(10, 10),
+                Size = new Size(120, 30)
+            };
+            btnProcess.Click += btnProcess_Click;
+
+            var btnPlayOriginal = new Button
+            {
+                Text = "Play Original",
+                Location = new Point(140, 10),
+                Size = new Size(120, 30)
+            };
+            btnPlayOriginal.Click += btnPlayOriginal_Click;
+
+            var btnPlayReversed = new Button
+            {
+                Text = "Play Reversed",
+                Location = new Point(270, 10),
+                Size = new Size(120, 30)
+            };
+            btnPlayReversed.Click += btnPlayReversed_Click;
+
+            var btnPlayReversedChannels = new Button
+            {
+                Text = "Play Rev+Channels",
+                Location = new Point(400, 10),
+                Size = new Size(120, 30)
+            };
+            btnPlayReversedChannels.Click += btnPlayReversedChannels_Click;
+
+            var btnStop = new Button
+            {
+                Text = "Stop Playback",
+                Location = new Point(530, 10),
+                Size = new Size(120, 30)
+            };
+            btnStop.Click += btnStop_Click;
+
+            // Add buttons to form
+            this.Controls.Add(btnProcess);
+            this.Controls.Add(btnPlayOriginal);
+            this.Controls.Add(btnPlayReversed);
+            this.Controls.Add(btnPlayReversedChannels);
+            this.Controls.Add(btnStop);
+
+            // Initialize audio output device
+            outputDevice = new WaveOutEvent();
+        }
+
+        private void btnPlayOriginal_Click(object sender, EventArgs e)
+        {
+            if (!File.Exists(inputFile))
+            {
+                MessageBox.Show("Input file not found!");
+                return;
+            }
+
+            // Display the original waveform
+            PlotSingleAudioSignal(inputFile, "Original Audio Signal");
+
+            // Play the audio
+            PlayAudioFile(inputFile);
+        }
+
+        private void PlotSingleAudioSignal(string filePath, string title)
+        {
+            var plotModel = new PlotModel { Title = title };
+            AddSignalToPlot(plotModel, filePath, "Audio", OxyColors.Blue, 5000);
+
+            plotView.Model = plotModel;
+            plotView.Visible = true;
+            plotView.Invalidate();
+        }
+
+        private void btnProcess_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (!File.Exists(inputFile))
+                {
+                    MessageBox.Show($"Input file not found at: {inputFile}");
+                    return;
+                }
+
+                // Process audio files
+                ReverseAudioFile(inputFile, reversedFile, false);
+                ReverseAudioFile(inputFile, reversedChannelsFile, true);
+
+                MessageBox.Show($"Processing complete!\nCreated files:\n{reversedFile}\n{reversedChannelsFile}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void PlayAudioFile(string filePath)
+        {
+            StopPlayback();
+
+            if (File.Exists(filePath))
+            {
+                audioFile = new AudioFileReader(filePath);
+                outputDevice.Init(audioFile);
+                outputDevice.Play();
+            }
+            else
+            {
+                MessageBox.Show($"Audio file not found: {filePath}");
+            }
+        }
+
+        private void StopPlayback()
+        {
+            if (outputDevice != null && outputDevice.PlaybackState == PlaybackState.Playing)
+            {
+                outputDevice.Stop();
+            }
+            audioFile?.Dispose();
+            audioFile = null;
+        }
+
+        private void btnPlayReversed_Click(object sender, EventArgs e)
+        {
+            if (!File.Exists(reversedFile))
+            {
+                MessageBox.Show("Reversed file not found! Process audio first.");
+                return;
+            }
+            PlotSingleAudioSignal(reversedFile, "Reversed Audio Signal");
+            PlayAudioFile(reversedFile);
+        }
+
+        private void btnPlayReversedChannels_Click(object sender, EventArgs e)
+        {
+            if (!File.Exists(reversedChannelsFile))
+            {
+                MessageBox.Show("Reversed channels file not found! Process audio first.");
+                return;
+            }
+            PlotSingleAudioSignal(reversedChannelsFile, "Reversed with Swapped Channels");
+            PlayAudioFile(reversedChannelsFile);
+        }
+
+        private void btnStop_Click(object sender, EventArgs e) => StopPlayback();
+
+        private void ReverseAudioFile(string inputPath, string outputPath, bool swapChannels)
+        {
+            using (var reader = new AudioFileReader(inputPath))
+            {
+                var format = reader.WaveFormat;
+                var buffer = new float[reader.Length / (format.BitsPerSample / 8)];
+                int samplesRead = reader.Read(buffer, 0, buffer.Length);
+
+                Array.Reverse(buffer);
+
+                if (swapChannels && format.Channels == 2)
+                {
+                    for (int i = 0; i < samplesRead; i += 2)
+                    {
+                        (buffer[i], buffer[i + 1]) = (buffer[i + 1], buffer[i]);
+                    }
+                }
+
+                using (var writer = new WaveFileWriter(outputPath, format))
+                {
+                    writer.WriteSamples(buffer, 0, samplesRead);
+                }
+            }
+        }
+
+        private void AddSignalToPlot(PlotModel plotModel, string filePath, string title, OxyColor color, int maxSamples)
+        {
+            if (!File.Exists(filePath)) return;
+
+            using (var reader = new AudioFileReader(filePath))
+            {
+                var buffer = new float[Math.Min(maxSamples, reader.Length / (reader.WaveFormat.BitsPerSample / 8))];
+                int samplesRead = reader.Read(buffer, 0, buffer.Length);
+
+                var series = new LineSeries
+                {
+                    Title = title,
+                    Color = color,
+                    StrokeThickness = 1
+                };
+
+                for (int i = 0; i < samplesRead; i += 10)
+                {
+                    series.Points.Add(new DataPoint(i, buffer[i]));
+                }
+
+                plotModel.Series.Add(series);
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            StopPlayback();
+            outputDevice?.Dispose();
+        }
+    }
+}
